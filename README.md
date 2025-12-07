@@ -5,31 +5,74 @@
 ![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)
 ![Python](https://img.shields.io/badge/python-3.9+-3776AB.svg)
 
-**Kvantum** is a cutting-edge financial engineering dashboard that bridges the gap between classical stochastic calculus and quantum computing algorithms. It provides an interactive environment to explore the **Heston Stochastic Volatility Model** and estimate the computational resources required to price options using **Quantum Amplitude Estimation (QAE)**.
+**Kvantum** is a high-fidelity financial dashboard that bridges Classical Quantitative Finance, Quantum Computing (FTQC), and Generative AI. It simulates European option pricing using the **Heston Stochastic Volatility Model** while simultaneously estimating the computational resources required to run the same simulation on a Fault-Tolerant Quantum Computer using **Iterative Quantum Amplitude Estimation (IQAE)**.
 
-This project demonstrates a modern architecture combining a high-performance Python backend for numerical simulations with a responsive, data-rich React frontend.
+This project demonstrates a modern architecture combining a high-performance **Python (FastAPI)** backend for numerical simulations with a responsive, data-rich **React** frontend.
 
 ---
 
 ## 🚀 Key Features
 
-### 1. Heston Model Simulation
-*   **Real-time Monte Carlo**: Run thousands of asset price paths directly in your browser (visualized) and backend (computed).
-*   **Stochastic Volatility**: Visualize how volatility evolves over time alongside asset prices, a key feature missing in standard Black-Scholes models.
-*   **Interactive Parameters**: Dynamically adjust Spot Price ($S_0$), Strike ($K$), Volatility of Volatility ($\xi$), Mean Reversion ($\kappa$), and Correlation ($\rho$).
+*   **Stochastic Volatility Simulation**: Runs 1,000+ Monte Carlo paths using the Heston Model (Log-Euler discretization).
+*   **Quantum Resource Estimator**: Calculates the theoretical logical qubits, T-gates, and circuit depth required for Quantum Advantage.
+*   **Real-Time Data Feed**: Uses **yfinance** to fetch real-time/delayed stock prices and market status.
+*   **AI Analyst**: Generates Bloomberg-terminal style shorthand market insights using **Google Gemini 2.0 Flash** (Python SDK).
+*   **Interactive Greeks**: Real-time visualization of Delta, Gamma, and Vega sensitivity curves.
+*   **Scandi-Minimalist UI**: Fully responsive, dark-mode enabled interface built with React and Tailwind CSS.
 
-### 2. Quantum Resource Estimation
-*   **QAE Metrics**: detailed breakdown of the quantum resources needed to achieve a target precision for option pricing.
-*   **Metrics Calculated**:
-    *   **Logical Qubits**: State preparation and ancilla qubits.
-    *   **T-Gate Count**: The most expensive operation in fault-tolerant quantum computing.
-    *   **Circuit Depth**: The length of the quantum circuit.
-    *   **Theoretical Speedup**: Comparison of Quantum ($O(1/\epsilon)$) vs. Classical ($O(1/\epsilon^2)$) convergence.
+---
 
-### 3. Advanced Financial Analytics
-*   **Greeks Term Structure**: Interactive visualization of Delta, Gamma, and Vega across different time-to-maturities.
-*   **Live Market Data**: Integration with **yfinance** to fetch real-time (or delayed) stock prices and market status (Open/Closed/Pre-market).
-*   **AI Market Insights**: Powered by **Google Gemini 2.0 Flash**, generating Bloomberg-terminal style concise market summaries based on simulation results and live data.
+## 🧠 The Mathematics (Classical)
+
+The application moves beyond the standard Black-Scholes model by incorporating stochastic volatility. It uses the **Heston Model**, defined by the following Stochastic Differential Equations (SDEs):
+
+### 1. Asset Price Process
+$$ dS_t = r S_t dt + \sqrt{v_t} S_t dW_1 $$
+
+### 2. Variance Process
+$$ dv_t = \kappa (\theta - v_t) dt + \xi \sqrt{v_t} dW_2 $$
+
+Where:
+*   $S_t$: Asset Price
+*   $v_t$: Instantaneous Variance
+*   $r$: Risk-free rate
+*   $\kappa$: Rate of mean reversion
+*   $\theta$: Long-run average variance
+*   $\xi$: Volatility of volatility (Vol-of-Vol)
+*   $dW_1, dW_2$: Wiener processes with correlation $\rho$.
+
+### Simulation Logic
+The backend utilizes a **Log-Euler Discretization** scheme to ensure positivity of variance (Full Truncation) and numerical stability, implemented efficiently in **NumPy**.
+
+---
+
+## ⚛️ The Physics (Quantum)
+
+The "Quantum Acceleration" panel estimates the resources needed to achieve a Quadratic Speedup ($O(\epsilon^{-1})$) over classical Monte Carlo ($O(\epsilon^{-2})$) using **Quantum Amplitude Estimation (QAE)**.
+
+### Resource Estimation Logic
+The app calculates resources for a Fault-Tolerant Quantum Computer (FTQC) based on the complexity of the arithmetic required to simulate the Heston paths in a quantum circuit.
+
+1.  **Precision Scaling**: 
+    Determines the number of qubits needed to represent the state based on the desired target error $\epsilon = 1/\sqrt{N_{paths}}$.
+    
+2.  **Oracle Depth ($T_{depth}$)**:
+    Estimates the number of T-gates (the most expensive operation in error-corrected quantum computing) required for the arithmetic operations (Multiplication, Sqrt, Gaussian sampling) per time step.
+
+3.  **Grover Iterations ($k$)**:
+    $$ k \approx \frac{\pi}{4\epsilon} $$
+    The total circuit depth is roughly $T_{depth} \times k$.
+
+---
+
+## 🤖 AI & Agents
+
+KVANTUM uses **Google Gemini 2.0** (via the `google-generativeai` Python SDK) for market analysis:
+
+### The Analyst (Insights)
+Generates concise, "Bloomberg-style" shorthand syntax to summarize complex option data.
+*   **Input**: Greeks, Moneyness, Volatility, and Quantum Metrics.
+*   **Output**: Single-line summary (e.g., `SPX CALL 5850 | 2.1% OTM | D.53 G.0007 | Q-SPD 31.6x`).
 
 ---
 
@@ -40,7 +83,6 @@ This project demonstrates a modern architecture combining a high-performance Pyt
 *   **Language**: TypeScript
 *   **Styling**: Tailwind CSS (Dark Mode enabled)
 *   **Visualization**: Recharts (Responsive, animated charts)
-*   **Icons**: Lucide React
 
 ### Backend
 *   **Framework**: FastAPI (High-performance async Python)
@@ -112,22 +154,6 @@ npm install
 npm run dev
 ```
 *The frontend will open at `http://localhost:5173`.*
-
----
-
-## 🖥️ Usage Guide
-
-1.  **Dashboard Overview**: The main screen shows the Heston parameters on the left and the simulation results on the right.
-2.  **Running Simulations**:
-    *   Adjust the sliders (e.g., increase $\xi$ to see "rougher" volatility paths).
-    *   Click **"Run Simulation"** to trigger the Python backend.
-    *   Watch the paths animate and the distribution graph update.
-3.  **Market Data**:
-    *   Select a ticker (e.g., `SPY`, `NVDA`) from the dropdown.
-    *   The app will fetch the live price. Click **"Sync to Market"** to set the Spot Price ($S_0$) to the live price.
-4.  **AI Insights**:
-    *   After a simulation, click **"Generate Insight"**.
-    *   Gemini will analyze the Greeks, Moneyness, and Quantum metrics to provide a professional trading summary.
 
 ---
 
