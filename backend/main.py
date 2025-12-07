@@ -180,7 +180,7 @@ class MarketAnalyst:
         try:
             # Phi-3 Prompt Template
             messages = [
-                {"role": "system", "content": "You are a senior quantitative trader. Provide a sharp, concise analysis under 60 words. Focus on risk (Greeks), moneyness, and the strategic advantage of the quantum speedup. No markdown."},
+                {"role": "system", "content": "You are a senior quantitative trader. Provide a sharp, 2-3 sentence analysis. Focus on risk (Greeks), moneyness, and the strategic advantage of the quantum speedup. No markdown."},
                 {"role": "user", "content": f"""Analyze this option contract:
 Ticker: {ticker}
 Type: {params.optionType}
@@ -190,10 +190,9 @@ Greeks: Delta {result.greeks['delta']:.2f}, Gamma {result.greeks['gamma']:.4f}, 
 Quantum: {quantum.theoreticalSpeedup:.1f}x speedup, {quantum.physicalQubits} qubits
 
 Output requirements:
-1. Assess trade setup (bullish/bearish/neutral).
-2. Highlight key risks.
-3. Explain quantum advantage.
-Keep it brief."""}
+1. Assess the trade setup (bullish/bearish/neutral).
+2. Highlight key risks (e.g., Theta decay, Gamma risk).
+3. Explain how the quantum speedup aids execution."""}
             ]
             
             input_ids = self._tokenizer.apply_chat_template(
@@ -209,7 +208,7 @@ Keep it brief."""}
             
             outputs = self._model.generate(
                 input_ids, 
-                max_new_tokens=160, # Increased to prevent cutoff
+                max_new_tokens=200, # Increased to prevent cutoff
                 eos_token_id=terminators,
                 temperature=0.7,
                 do_sample=True,
