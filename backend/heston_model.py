@@ -3,6 +3,12 @@ import time
 from scipy.stats import norm
 from pydantic import BaseModel
 from typing import List, Literal, Dict
+from enum import Enum
+
+class QuantumHardware(str, Enum):
+    SUPERCONDUCTING = "superconducting"
+    ION_TRAP = "ion_trap"
+    NEUTRAL_ATOM = "neutral_atom"
 
 class HestonParams(BaseModel):
     S0: float
@@ -17,6 +23,7 @@ class HestonParams(BaseModel):
     numPaths: int
     timeSteps: int
     optionType: Literal['Call', 'Put']
+    hardware: QuantumHardware = QuantumHardware.SUPERCONDUCTING
 
 class SimulationResult(BaseModel):
     price: float
@@ -27,14 +34,22 @@ class SimulationResult(BaseModel):
     executionTime: float
 
 class QuantumMetrics(BaseModel):
-    estimatedQubits: int
-    circuitDepth: int
+    # Logical Resources
+    logicalQubits: int
+    logicalDepth: int
+    
+    # Physical Resources (The Real Cost)
+    physicalQubits: int
+    codeDistance: int
+    wallClockTime: str # Human readable time
+    
+    # Algorithmic Metrics
     theoreticalSpeedup: float
-    estimatedQuantumError: float
     tGateCount: int
     cnotCount: int
-    oracleDepth: int
     groverIterations: int
+    
+    # Breakdown
     qubitBreakdown: Dict[str, int]
 
 def calculate_greeks(params: HestonParams, current_price: float) -> Dict[str, float]:
@@ -77,43 +92,134 @@ def calculate_greeks(params: HestonParams, current_price: float) -> Dict[str, fl
     }
 
 def calculate_quantum_metrics(params: HestonParams) -> QuantumMetrics:
-    # 1. Precision Scaling
+    # --- 1. Algorithmic Complexity (Logical Layer) ---
+    
+    # Precision scaling: Error goes as 1/sqrt(N)
     target_error = 1 / np.sqrt(params.numPaths)
+    
+    # Number of bits needed for fixed-point arithmetic to match Monte Carlo error
+    # Heuristic: 10 base bits + log2(1/error)
     precision_bits = int(np.ceil(10 + max(0, -np.log2(target_error))))
     
-    # 2. QAE Complexity
+    # Grover Iterations for Amplitude Estimation
+    # k ~ pi/(4*epsilon)
     grover_iterations = int(np.ceil((np.pi / 4) * (1 / target_error)))
     speedup = params.numPaths / grover_iterations
     
-    # 3. Oracle Complexity (Heston Logic costs)
-    cost_mult = 20 * precision_bits
-    cost_add = 4 * precision_bits
-    cost_sqrt = 40 * precision_bits
-    cost_gaussian = 100 * precision_bits
+    # Oracle Cost (One Heston Step)
+    # Based on "Windowed Arithmetic" costs (Gidney et al.)
+    # Multiplications are expensive (T-gates), Additions are cheap (Clifford)
+    cost_mult = 20 * precision_bits  # T-gates per multiplication
+    cost_add = 4 * precision_bits    # T-gates per addition (carry ripple)
+    cost_sqrt = 40 * precision_bits  # Newton-Raphson iterations
+    cost_gaussian = 100 * precision_bits # Box-Muller or Ziggurat
     
-    # Per Step
+    # Operations per time step in Heston (Euler-Maruyama)
+    # 2 Gaussians, 1 Sqrt (vol), 4 Mults, 3 Adds
     t_gates_per_step = (2 * cost_gaussian + 1 * cost_sqrt + 4 * cost_mult + 3 * cost_add)
     oracle_t_depth = params.timeSteps * t_gates_per_step
     
-    # 4. Totals
+    # Total Logical T-Gates
     total_t_gates = oracle_t_depth * grover_iterations
-    total_cnots = total_t_gates * 2.5
+    total_cnots = total_t_gates * 2.5 # Rough heuristic for CNOT/T ratio
     
-    # 5. Logical Qubits
+    # Logical Qubits
+    # State: 2 * precision (Asset + Vol)
+    # Ancilla: Needed for arithmetic (carry bits, etc.) ~ 4x state
     logical_state_qubits = 2 * precision_bits
-    logical_ancilla_qubits = 6 * precision_bits
+    logical_ancilla_qubits = 4 * precision_bits
     qae_qubits = int(np.ceil(np.log2(grover_iterations))) + 2
     
     total_logical_qubits = logical_state_qubits + logical_ancilla_qubits + qae_qubits
     
+    # --- 2. Hardware Specifications (Physical Layer) ---
+    
+    # Hardware Constants
+    if params.hardware == QuantumHardware.ION_TRAP:
+        # Ion Trap (e.g., IonQ Aria/Forte)
+        # Pros: Low error, All-to-all connectivity
+        # Cons: Slow gate speeds
+        phys_gate_time = 100e-6 # 100 microseconds (slow)
+        phys_error_rate = 1e-4  # 0.01% error (very good)
+        cycle_time = 1e-3       # Surface code cycle (slow)
+    elif params.hardware == QuantumHardware.NEUTRAL_ATOM:
+        # Neutral Atom (e.g., QuEra, Pasqal)
+        phys_gate_time = 1e-6   # 1 microsecond
+        phys_error_rate = 1e-3  # 0.1%
+        cycle_time = 10e-6
+    else: # SUPERCONDUCTING (Default)
+        # Superconducting (e.g., IBM Eagle/Heron, Google Sycamore)
+        # Pros: Fast gates
+        # Cons: Higher error, Nearest-neighbor connectivity
+        phys_gate_time = 50e-9  # 50 nanoseconds (fast)
+        phys_error_rate = 1e-3  # 0.1% error
+        cycle_time = 1e-6       # 1 microsecond cycle
+        
+    # --- 3. Error Correction (Surface Code) ---
+    
+    # We need the Logical Error Rate per T-gate to be << 1 / Total_T_Gates
+    # Let's say we want P_fail < 1% for the whole algorithm
+    required_logical_error = 0.01 / max(1, total_t_gates)
+    
+    # Surface Code Distance Formula (Fowler et al.)
+    # P_logical ~ 0.1 * (100 * P_physical)^((d+1)/2)
+    # Solve for d:
+    # log(P_logical / 0.1) ~ ((d+1)/2) * log(100 * P_physical)
+    # d ~ 2 * log(P_logical / 0.1) / log(100 * P_physical) - 1
+    
+    # Avoid log(0) or division by zero
+    p_phys_scaled = 100 * phys_error_rate
+    if p_phys_scaled >= 1:
+        # Error too high for threshold!
+        d = 999 # Impossible
+    else:
+        numerator = np.log(required_logical_error / 0.1)
+        denominator = np.log(p_phys_scaled)
+        d = int(np.ceil(2 * (numerator / denominator) - 1))
+        
+    # Ensure d is odd
+    if d % 2 == 0: d += 1
+    if d < 3: d = 3 # Minimum distance
+    
+    # Physical Qubits per Logical Qubit
+    # Surface code requires 2*d^2 physical qubits per logical qubit
+    physical_qubits_per_logical = 2 * (d**2)
+    total_physical_qubits = total_logical_qubits * physical_qubits_per_logical
+    
+    # --- 4. Runtime Estimation ---
+    
+    # Wall Clock Time = Total T-Gates * Time per T-Gate
+    # In surface code, T-gates are injected via Magic State Distillation
+    # Time per T-gate is roughly d * cycle_time (sequential injection) 
+    # or just cycle_time if parallelized (optimistic). 
+    # Let's be realistic/conservative: d * cycle_time
+    
+    time_per_logical_op = d * cycle_time
+    total_seconds = total_t_gates * time_per_logical_op
+    
+    # Format time
+    if total_seconds < 1:
+        time_str = f"{total_seconds*1000:.1f} ms"
+    elif total_seconds < 60:
+        time_str = f"{total_seconds:.1f} sec"
+    elif total_seconds < 3600:
+        time_str = f"{total_seconds/60:.1f} min"
+    elif total_seconds < 86400:
+        time_str = f"{total_seconds/3600:.1f} hrs"
+    elif total_seconds < 31536000:
+        time_str = f"{total_seconds/86400:.1f} days"
+    else:
+        time_str = f"{total_seconds/31536000:.1f} years"
+        
     return QuantumMetrics(
-        estimatedQubits=total_logical_qubits,
-        circuitDepth=int(np.ceil(oracle_t_depth * grover_iterations)),
+        logicalQubits=total_logical_qubits,
+        logicalDepth=int(np.ceil(oracle_t_depth * grover_iterations)),
+        physicalQubits=total_physical_qubits,
+        codeDistance=d,
+        wallClockTime=time_str,
         theoreticalSpeedup=speedup,
-        estimatedQuantumError=target_error,
         tGateCount=int(np.ceil(total_t_gates)),
         cnotCount=int(np.ceil(total_cnots)),
-        oracleDepth=int(oracle_t_depth),
         groverIterations=grover_iterations,
         qubitBreakdown={
             "state": logical_state_qubits,

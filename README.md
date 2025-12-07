@@ -14,9 +14,9 @@ This project demonstrates a modern architecture combining a high-performance **P
 ## 🚀 Key Features
 
 *   **Stochastic Volatility Simulation**: Runs 1,000+ Monte Carlo paths using the Heston Model (Log-Euler discretization).
-*   **Quantum Resource Estimator**: Calculates the theoretical logical qubits, T-gates, and circuit depth required for Quantum Advantage.
+*   **Quantum Resource Estimator**: Uses **Surface Code** error correction models to estimate Physical Qubits, Code Distance, and Wall Clock Time for different hardware architectures (Superconducting vs Ion Trap).
 *   **Real-Time Data Feed**: Uses **yfinance** to fetch real-time/delayed stock prices and market status.
-*   **AI Analyst**: Generates Bloomberg-terminal style shorthand market insights using **Google Gemini 2.0 Flash** (Python SDK).
+*   **AI Analyst**: Generates Bloomberg-terminal style shorthand market insights using a local **Phi-3-mini** model (via Hugging Face Transformers).
 *   **Interactive Greeks**: Real-time visualization of Delta, Gamma, and Vega sensitivity curves.
 *   **Scandi-Minimalist UI**: Fully responsive, dark-mode enabled interface built with React and Tailwind CSS.
 
@@ -50,24 +50,30 @@ The backend utilizes a **Log-Euler Discretization** scheme to ensure positivity 
 
 The "Quantum Acceleration" panel estimates the resources needed to achieve a Quadratic Speedup ($O(\epsilon^{-1})$) over classical Monte Carlo ($O(\epsilon^{-2})$) using **Quantum Amplitude Estimation (QAE)**.
 
-### Resource Estimation Logic
-The app calculates resources for a Fault-Tolerant Quantum Computer (FTQC) based on the complexity of the arithmetic required to simulate the Heston paths in a quantum circuit.
+### Advanced Resource Estimation
+Unlike basic estimators that only count logical gates, Kvantum implements **Gidney's Windowed Arithmetic** model and **Surface Code** error correction to estimate the *true* cost of running this algorithm on real hardware.
 
-1.  **Precision Scaling**: 
-    Determines the number of qubits needed to represent the state based on the desired target error $\epsilon = 1/\sqrt{N_{paths}}$.
-    
-2.  **Oracle Depth ($T_{depth}$)**:
-    Estimates the number of T-gates (the most expensive operation in error-corrected quantum computing) required for the arithmetic operations (Multiplication, Sqrt, Gaussian sampling) per time step.
+1.  **Logical Layer**:
+    *   Calculates the number of T-gates required for Heston arithmetic (Multiplication, Sqrt, Gaussian Sampling).
+    *   Estimates Logical Qubits (State + Ancilla) and Circuit Depth.
 
-3.  **Grover Iterations ($k$)**:
-    $$ k \approx \frac{\pi}{4\epsilon} $$
-    The total circuit depth is roughly $T_{depth} \times k$.
+2.  **Physical Layer (The Real Cost)**:
+    *   **Surface Code**: Calculates the Code Distance ($d$) required to suppress errors below the algorithm's failure threshold.
+    *   **Physical Qubits**: $N_{phys} \approx 2d^2 \times N_{logical}$. This typically results in millions of physical qubits.
+    *   **Wall Clock Time**: Estimates runtime based on the hardware's gate cycle time and the sequential injection of magic states.
+
+### Hardware Benchmarking
+The application allows you to benchmark the simulation against different quantum architectures:
+
+*   **Superconducting (e.g., IBM, Google)**: Fast gate times (ns) but higher error rates, requiring larger code distances ($d$) and more physical qubits.
+*   **Ion Trap (e.g., IonQ, Quantinuum)**: Slower gate times ($\mu s$) but lower error rates and better connectivity.
+*   **Neutral Atom (e.g., QuEra)**: A middle ground with scalable qubit arrays.
 
 ---
 
 ## 🤖 AI & Agents
 
-KVANTUM uses **Google Gemini 2.0** (via the `google-generativeai` Python SDK) for market analysis:
+KVANTUM uses a local **Phi-3-mini** model (via `transformers`) for market analysis. No API keys are required, and all data stays local.
 
 ### The Analyst (Insights)
 Generates concise, "Bloomberg-style" shorthand syntax to summarize complex option data.
@@ -88,7 +94,7 @@ Generates concise, "Bloomberg-style" shorthand syntax to summarize complex optio
 *   **Framework**: FastAPI (High-performance async Python)
 *   **Numerics**: NumPy, SciPy (Vectorized Monte Carlo simulations)
 *   **Data**: yfinance (Market data), Pydantic (Data validation)
-*   **AI**: Google Generative AI SDK (Gemini integration)
+*   **AI**: Local Transformers (Phi-3-mini)
 
 ---
 
@@ -97,7 +103,7 @@ Generates concise, "Bloomberg-style" shorthand syntax to summarize complex optio
 ### Prerequisites
 *   **Node.js** (v18 or higher)
 *   **Python** (v3.9 or higher)
-*   **Google Gemini API Key** (Get one at [aistudio.google.com](https://aistudio.google.com/))
+*   **Disk Space**: ~10GB (for local AI models)
 
 ### 1. Backend Setup
 
@@ -119,20 +125,10 @@ python -m venv .venv
 .venv\Scripts\activate
 ```
 
-Install dependencies:
+Install dependencies (including PyTorch & Transformers):
 
 ```bash
 pip install -r requirements.txt
-```
-
-Set your API Key (Required for AI Insights):
-
-```bash
-# macOS/Linux
-export GEMINI_API_KEY="your_actual_api_key_here"
-
-# Windows (PowerShell)
-$env:GEMINI_API_KEY="your_actual_api_key_here"
 ```
 
 Start the server:
@@ -140,7 +136,8 @@ Start the server:
 ```bash
 uvicorn main:app --reload
 ```
-*The backend will start at `http://127.0.0.1:8000`.*
+*Note: The first time you generate an insight, the application will download the Phi-3-mini model (~2.5GB). This may take a few minutes.*
+
 
 ### 2. Frontend Setup
 

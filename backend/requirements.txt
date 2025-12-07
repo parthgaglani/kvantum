@@ -4,4 +4,9 @@ numpy
 scipy
 pydantic
 yfinance
-google-generativeai
+
+
+huggingface_hub
+torch
+transformers
+accelerate

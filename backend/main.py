@@ -1,8 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from heston_model import HestonParams, SimulationResult, QuantumMetrics, run_heston_simulation, calculate_quantum_metrics
 from pydantic import BaseModel
-
+from heston_model import (
+    HestonParams,
+    run_heston_simulation,
+    calculate_quantum_metrics,
+    QuantumMetrics,
+    SimulationResult,
+    QuantumHardware
+)
+import numpy as np
 app = FastAPI()
 
 # Enable CORS for frontend
@@ -105,59 +112,131 @@ class InsightRequest(BaseModel):
     quantum: QuantumMetrics
     ticker: str
 
-@app.post("/market-insight")
-async def get_market_insight(req: InsightRequest):
-    import google.generativeai as genai
-    import os
+# --- AI Analyst (Local Transformers) ---
+
+class MarketAnalyst:
+    _instance = None
+    _model = None
+    _tokenizer = None
     
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return {"insight": "API KEY MISSING. UNABLE TO GENERATE QUANTUM ANALYTICS."}
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(MarketAnalyst, cls).__new__(cls)
+        return cls._instance
+    
+    def load_model(self):
+        if self._model is None:
+            print("Loading AI Model (Phi-3-mini)... This may take a while...")
+            try:
+                from transformers import AutoTokenizer, AutoModelForCausalLM
+                import torch
+                
+                model_id = "microsoft/Phi-3-mini-4k-instruct"
+                self._tokenizer = AutoTokenizer.from_pretrained(model_id)
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    model_id, 
+                    device_map="auto", 
+                    torch_dtype=torch.float16, 
+                    trust_remote_code=True,
+                    attn_implementation="eager"
+                )
+                print("✅ AI Model Loaded Successfully!")
+            except Exception as e:
+                print(f"❌ Failed to load model: {e}")
+                self._model = "ERROR"
+
+    def generate_insight(self, params: HestonParams, result: SimulationResult, quantum: QuantumMetrics, ticker: str) -> str:
+        # 1. Prepare Data Context
+        moneyness = params.S0 / params.K
+        if params.optionType == 'Call':
+            status = "ITM" if moneyness > 1 else "OTM"
+            pct = abs(moneyness - 1) * 100
+        else:
+            status = "ITM" if moneyness < 1 else "OTM"
+            pct = abs(1 - moneyness) * 100
+            
+        # Rule-Based Fallback
+        if abs(result.greeks['delta']) > 0.7: exposure = "high directional exposure"
+        elif abs(result.greeks['delta']) < 0.3: exposure = "low directional exposure"
+        else: exposure = "moderate exposure"
         
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    
-    params = req.params
-    result = req.result
-    quantum = req.quantum
-    ticker_symbol = req.ticker
-    
-    moneyness = params.S0 / params.K
-    status_dir = "ITM" if (params.optionType == 'Put' and moneyness < 1) or (params.optionType == 'Call' and moneyness >= 1) else "OTM"
-    status_pct = abs(1 - moneyness) * 100
-    
-    iv = (np.sqrt(params.v0) * 100)
-    speedup = quantum.theoreticalSpeedup
-    t_gates = f"{quantum.tGateCount / 1000000:.1f}M"
-    
-    prompt = f"""
-    Role: High-Frequency Trading Algorithm Output.
-    Task: Generate a SINGLE LINE of ultra-concise Bloomberg-style shorthand data.
-    
-    Data:
-    - Ticker: {ticker_symbol}
-    - Type: {params.optionType.upper()} Option
-    - Price: {params.S0:.2f}
-    - Moneyness: {status_pct:.2f}% {status_dir}
-    - Greeks: D {result.greeks['delta']:.2f}, G {result.greeks['gamma']:.4f}, V {result.greeks['vega']:.2f}
-    - IV: {iv:.1f}%
-    - Quantum: {speedup:.1f}x Speedup, {quantum.estimatedQubits} Logical Qubits
-    
-    Constraints:
-    - STRICTLY ONE LINE.
-    - USE "|" AS DELIMITER.
-    - NO EXPLANATORY TEXT.
-    - ABBREVIATIONS: D (Delta), G (Gamma), V (Vega), IV (Implied Vol), Q-SPD (Speedup).
-    
-    Format:
-    [TICKER] [TYPE] [PRICE] | [Moneyness] | D.[val] G.[val] V.[val] | IV[val]% | Q-SPD [val]x
-    """
-    
+        pq_num = quantum.physicalQubits
+        if pq_num > 1_000_000: pq_str = f"{pq_num/1_000_000:.1f}M"
+        elif pq_num > 1_000: pq_str = f"{pq_num/1_000:.0f}k"
+        else: pq_str = str(pq_num)
+        
+        fallback_insight = (
+            f"{ticker} {params.optionType} (${params.S0:.0f}) {status} ({pct:.1f}%) with {exposure} (Δ {result.greeks['delta']:.2f}). "
+            f"Quantum simulation indicates a {quantum.theoreticalSpeedup:.1f}x speedup requiring {pq_str} physical qubits."
+        )
+        
+        # 2. Try AI Generation
+        if self._model is None:
+            self.load_model()
+            
+        if self._model == "ERROR":
+            return f"{fallback_insight} (AI Failed to Load)"
+            
+        try:
+            # Phi-3 Prompt Template
+            messages = [
+                {"role": "system", "content": "You are a senior quantitative trader. Provide a sharp, 2-3 sentence analysis. Focus on risk (Greeks), moneyness, and the strategic advantage of the quantum speedup. No markdown."},
+                {"role": "user", "content": f"""Analyze this option contract:
+Ticker: {ticker}
+Type: {params.optionType}
+Price: ${params.S0:.2f}
+Status: {pct:.1f}% {status}
+Greeks: Delta {result.greeks['delta']:.2f}, Gamma {result.greeks['gamma']:.4f}, Vega {result.greeks['vega']:.2f}, Theta {result.greeks['theta']:.2f}
+Quantum: {quantum.theoreticalSpeedup:.1f}x speedup, {quantum.physicalQubits} qubits
+
+Output requirements:
+1. Assess the trade setup (bullish/bearish/neutral).
+2. Highlight key risks (e.g., Theta decay, Gamma risk).
+3. Explain how the quantum speedup aids execution."""}
+            ]
+            
+            input_ids = self._tokenizer.apply_chat_template(
+                messages, 
+                add_generation_prompt=True, 
+                return_tensors="pt"
+            ).to(self._model.device)
+            
+            terminators = [
+                self._tokenizer.eos_token_id,
+                self._tokenizer.convert_tokens_to_ids("<|endoftext|>")
+            ]
+            
+            outputs = self._model.generate(
+                input_ids, 
+                max_new_tokens=110, # Increased to prevent cutoff
+                eos_token_id=terminators,
+                temperature=0.7,
+                do_sample=True,
+                use_cache=False # Fix for DynamicCache error
+            )
+            
+            generated_text = self._tokenizer.decode(outputs[0][input_ids.shape[-1]:], skip_special_tokens=True)
+            return generated_text.strip()
+            
+        except Exception as e:
+            print(f"Generation Error: {e}")
+            return f"{fallback_insight} (Error: {str(e)})"
+
+# Global Instance
+analyst = MarketAnalyst()
+
+@app.post("/market-insight")
+async def get_market_insight(request: InsightRequest):
     try:
-        response = model.generate_content(prompt)
-        return {"insight": response.text.strip()}
+        insight = analyst.generate_insight(
+            request.params, 
+            request.result, 
+            request.quantum, 
+            request.ticker
+        )
+        return {"insight": insight}
     except Exception as e:
-        return {"insight": "SERVICE UNAVAILABLE."}
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health():

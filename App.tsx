@@ -2,16 +2,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, AreaChart, Area, Legend
+  BarChart, Bar, Cell, AreaChart, Area
 } from 'recharts';
 import {
-  Activity, TrendingUp, Cpu, Play,
-  BarChart2, Zap, BrainCircuit, Globe, Radio, RefreshCw, Settings2, Loader2, Link as LinkIcon,
-  Wifi, WifiOff, AlertCircle, Clock, Moon, Sun, History, Coffee, Sunset,
-  Layers, Box, GitCommit, Pause, Sigma
+  BarChart2, Zap, BrainCircuit, Globe, Radio, RefreshCw, Settings2, Loader2,
+  Clock, Moon, Sun, History, Coffee, Sunset,
+  Layers, Box, GitCommit, Sigma,
+  Activity, TrendingUp, Cpu, Play, AlertCircle
 } from 'lucide-react';
 import { Card, Input, Label, Button, Metric, SectionHeader, Slider, Switch, Select } from './components/ui';
-import { HestonParams, SimulationResult, QuantumMetrics } from './types';
+import { HestonParams, SimulationResult, QuantumMetrics, QuantumHardware } from './types';
 import { apiService } from './services/api';
 
 // Dynamic Chart Colors based on Theme
@@ -108,7 +108,8 @@ const App: React.FC = () => {
     S0: 5850, K: 5900, r: 0.045, T: 0.5,
     v0: 0.04, theta: 0.04, kappa: 3.0, xi: 0.3, rho: -0.7,
     numPaths: 1000, timeSteps: 50,
-    optionType: 'Call' // Default
+    optionType: 'Call',
+    hardware: QuantumHardware.SUPERCONDUCTING // Default
   });
 
   const [anchorPrice, setAnchorPrice] = useState<number>(5850);
@@ -297,10 +298,6 @@ const App: React.FC = () => {
     });
   }, [result, params.K, params.optionType, theme]);
 
-  // Note: Greeks curve data generation is now more complex as it requires multiple API calls.
-  // For now, we will disable the real-time curve generation or we need to add a bulk endpoint.
-  // To keep it simple and performant, we'll temporarily mock it or fetch it if needed.
-  // For this migration, I will comment it out to prevent excessive API calls during render.
   // Fetch Greeks Term Structure
   useEffect(() => {
     const fetchGreeks = async () => {
@@ -531,6 +528,22 @@ const App: React.FC = () => {
                 {/* Compute Section */}
                 <div className="space-y-8">
                   <SectionHeader title="Compute" icon={Cpu} />
+
+                  {/* Hardware Selector */}
+                  <div className="space-y-2">
+                    <Label className="text-neutral-500 mb-0">Quantum Hardware</Label>
+                    <Select
+                      value={params.hardware}
+                      onChange={(v) => setParams({ ...params, hardware: v as QuantumHardware })}
+                      options={[
+                        { label: "Superconducting (IBM/Google)", value: QuantumHardware.SUPERCONDUCTING },
+                        { label: "Ion Trap (IonQ/Quantinuum)", value: QuantumHardware.ION_TRAP },
+                        { label: "Neutral Atom (QuEra)", value: QuantumHardware.NEUTRAL_ATOM }
+                      ]}
+                      disabled={isLive || isSimulating}
+                    />
+                  </div>
+
                   <div>
                     <Label className="text-neutral-500 mb-2">Monte Carlo Paths</Label>
                     <div className="grid grid-cols-3 gap-2 mb-3">
@@ -712,6 +725,62 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Quantum Resource Estimation */}
+          {quantumMetrics && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card className="md:col-span-1">
+                <SectionHeader title="Resource Estimation" icon={Cpu} />
+                <div className="space-y-6">
+                  <Metric
+                    label="Physical Qubits"
+                    value={quantumMetrics.physicalQubits.toLocaleString()}
+                    subtext={`Code Distance: ${quantumMetrics.codeDistance}`}
+                    tooltip="Total number of physical qubits required, accounting for Surface Code error correction overhead."
+                  />
+                  <Metric
+                    label="Wall Clock Time"
+                    value={quantumMetrics.wallClockTime}
+                    subtext={`${quantumMetrics.tGateCount.toLocaleString()} T-Gates`}
+                    tooltip="Estimated runtime on the selected quantum hardware."
+                  />
+                </div>
+              </Card>
+              <Card className="md:col-span-2">
+                <SectionHeader title="Logical Breakdown" icon={Layers} />
+                <div className="grid grid-cols-3 gap-4">
+                  <Metric
+                    label="Logical Qubits"
+                    value={quantumMetrics.logicalQubits}
+                    subtext="Algorithm Width"
+                  />
+                  <Metric
+                    label="Logical Depth"
+                    value={quantumMetrics.logicalDepth.toLocaleString()}
+                    subtext="Algorithm Depth"
+                  />
+                  <Metric
+                    label="Speedup"
+                    value={`${quantumMetrics.theoreticalSpeedup.toFixed(1)}x`}
+                    subtext="vs Monte Carlo"
+                    trend="up"
+                  />
+                </div>
+                <div className="mt-6 pt-6 border-t border-neutral-100 dark:border-white/5">
+                  <div className="flex justify-between items-center text-xs text-neutral-500">
+                    <span>State: {quantumMetrics.qubitBreakdown.state}</span>
+                    <span>Ancilla: {quantumMetrics.qubitBreakdown.ancilla}</span>
+                    <span>QAE: {quantumMetrics.qubitBreakdown.qae}</span>
+                  </div>
+                  <div className="w-full h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full mt-2 overflow-hidden flex">
+                    <div style={{ width: `${(quantumMetrics.qubitBreakdown.state / quantumMetrics.logicalQubits) * 100}%` }} className="bg-emerald-500 h-full" />
+                    <div style={{ width: `${(quantumMetrics.qubitBreakdown.ancilla / quantumMetrics.logicalQubits) * 100}%` }} className="bg-indigo-500 h-full" />
+                    <div style={{ width: `${(quantumMetrics.qubitBreakdown.qae / quantumMetrics.logicalQubits) * 100}%` }} className="bg-rose-500 h-full" />
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <Card>
